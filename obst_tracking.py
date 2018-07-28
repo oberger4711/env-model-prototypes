@@ -5,13 +5,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 DELTA_T = 0.1
-NOISE_VARIANCE = 0.025
+NOISE_VARIANCE = 0.02
 N_MEASUREMENTS = 60
+LOST_MEASUREMENTS = [30, 50] # Predict only in this interval in the form [t_start, t_end]
+#LOST_MEASUREMENTS = [] # No lost measurements
 
 def spacedmarks(x, y, Nmarks, data_ratio=None):
     import scipy.integrate
     if data_ratio is None:
-        data_ratio = plt.gca().get_data_ratio()
+        data_ratio = 1.0
     dydx = np.gradient(y, x[1])
     dxdx = np.gradient(x, x[1])*data_ratio
     arclength = scipy.integrate.cumtrapz(np.sqrt(dydx**2 + dxdx**2), x, initial=0)
@@ -24,9 +26,11 @@ def spacedmarks(x, y, Nmarks, data_ratio=None):
 t = np.linspace(0, 6, 50)
 points_lane_t = spacedmarks(t, np.sin(t), N_MEASUREMENTS)
 points_lane = np.array(points_lane_t).T
-steps = points_lane[1, :] - points_lane[2, :]
-step_lengths = np.linalg.norm(steps)
-v_true = np.average(step_lengths) / DELTA_T
+steps = np.zeros((points_lane.shape[0], 2))
+steps[1:, ] = points_lane[1:, :] - points_lane[:-1, :]
+steps[0,] = steps[1,]
+step_lengths = np.linalg.norm(steps, axis=1)
+vs_true = step_lengths / DELTA_T
 zs = points_lane + np.random.normal(0, math.sqrt(NOISE_VARIANCE), points_lane.shape)
 
 def get_nearest_direction(x_k, points_lane):
@@ -83,26 +87,43 @@ def filter(x_k, p_k, z_k, r, points_lane):
 
 # KF initialization
 x_k = np.array([0, 0, 0.5]) # p_x, p_y, v_parallel
-p_k = np.eye(3) * 1000
+p_k = np.eye(3) * 10
 r = np.eye(2) * NOISE_VARIANCE
-variance_a = 0.2
+variance_a = 0.3
 
 # Run KF
 xs = np.zeros((zs.shape[0], 3))
+ps = np.zeros((zs.shape[0], 3, 3))
 for k in range(zs.shape[0]):
+    print("### Timestep {}".format(k))
     x_k, p_k = predict(x_k, p_k, variance_a, points_lane)
     print("Predicted speed: {}".format(x_k[2]))
-    x_k, p_k = filter(x_k, p_k, zs[k, :], r, points_lane)
+    if len(LOST_MEASUREMENTS) != 2 or LOST_MEASUREMENTS[0] > k or LOST_MEASUREMENTS[1] < k:
+        x_k, p_k = filter(x_k, p_k, zs[k, :], r, points_lane)
+        print("Filtered speed: {}".format(x_k[2]))
     xs[k, :] = x_k
-    print("Filtered speed: {}".format(x_k[2]))
+    ps[k, :, :] = p_k
     print()
 
 # Plot
-plt.plot(points_lane_t[0, :], points_lane_t[1, :], "+-", label="true")
-plt.plot(zs.T[0], zs.T[1], "+", label="measurements")
-plt.plot(xs.T[0], xs.T[1], "+-", label="position_estimated")
-plt.plot(xs.T[0], xs.T[2], "+-", label="velocity_estimated")
-plt.plot(xs.T[0], np.ones((xs.shape[0])) * v_true, "+-", label="velocity_true")
-plt.legend()
+f, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
+ax1.set_title("Position")
+ax1.plot(points_lane_t[0, :], points_lane_t[1, :], "+-", label="truth")
+ax1.plot(zs.T[0], zs.T[1], "+", label="measurements")
+ax1.plot(xs.T[0], xs.T[1], "+-", label="estimated")
+if len(LOST_MEASUREMENTS) != 2 or LOST_MEASUREMENTS[0] > k or LOST_MEASUREMENTS[1] < k:
+    ax1.plot(xs.T[0, LOST_MEASUREMENTS[0]:LOST_MEASUREMENTS[1]+1], xs.T[1, LOST_MEASUREMENTS[0]:LOST_MEASUREMENTS[1]+1], "rx-", linewidth=3, label="prediction_only")
+ax1.legend()
+
+ax2.set_title("Velocity along Lane")
+ax2.plot(xs.T[0], vs_true, "+-", label="truth")
+ax2.errorbar(xs.T[0], xs.T[2], yerr=ps[:, 2, 2], fmt="+-", label="estimated")
+if len(LOST_MEASUREMENTS) != 2 or LOST_MEASUREMENTS[0] > k or LOST_MEASUREMENTS[1] < k:
+    xs_pred = xs.T[0, LOST_MEASUREMENTS[0]:LOST_MEASUREMENTS[1]+1]
+    vs_pred = xs.T[2, LOST_MEASUREMENTS[0]:LOST_MEASUREMENTS[1]+1]
+    err_pred = ps[LOST_MEASUREMENTS[0]:LOST_MEASUREMENTS[1]+1, 2, 2] **2
+    ax2.errorbar(xs_pred, vs_pred, yerr=err_pred, fmt="rx-", linewidth=1, label="prediction_only")
+ax2.set_ylim(1.5 * min(0, np.min(vs_true)), 1.5 * max(0, np.max(vs_true)))
+ax2.legend()
 
 plt.show()
