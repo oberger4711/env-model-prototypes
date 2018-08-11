@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 DELTA_T = 0.1
 MEASUREMENT_VARIANCE = 0.04
 MEASUREMENT_STD_DEV = math.sqrt(MEASUREMENT_VARIANCE)
-ACC_VARIANCE = 800
+ACC_VARIANCE = 18000
 N_MEASUREMENTS = 120
 LOST_MEASUREMENTS = [30, 50] # Predict only in this interval in the form [t_start, t_end]
 #LOST_MEASUREMENTS = [] # No lost measurements
@@ -90,8 +90,11 @@ def filter(x_k, p_k, z_k, r):
     return x_k, p_k
 
 # KF initialization
-x_k = np.array([0, 0, 150]) # p_x [m], p_y [m], v_parallel [cm / s^2]
-p_k = np.eye(3) * 10
+x_k = np.array([0, 0, 0]) # p_x [m], p_y [m], v_parallel [cm / s^2]
+p_k = np.array([[50, 0, 0],
+                [0, 50, 0],
+                [0, 0, 1000]])
+
 r = np.eye(2) * MEASUREMENT_VARIANCE
 
 # Run KF
