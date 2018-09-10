@@ -68,7 +68,7 @@ def predict(x_k, p_k, variance_a, points_lane):
     #x_k1 = x_k +
 
     # Predict covariance.
-    p_k1 = np.matmul(a, p_k) + np.matmul(g_k * q_k, g_k_t)
+    p_k1 = np.matmul(np.matmul(a, p_k), a.T) + np.matmul(g_k * q_k, g_k_t)
 
     return x_k1, p_k1
 
@@ -93,7 +93,7 @@ def filter(x_k, p_k, z_k, r):
 x_k = np.array([0, 0, 0]) # p_x [m], p_y [m], v_parallel [cm / s^2]
 p_k = np.array([[50, 0, 0],
                 [0, 50, 0],
-                [0, 0, 1000]])
+                [0, 0, 500]])
 
 r = np.eye(2) * MEASUREMENT_VARIANCE
 
