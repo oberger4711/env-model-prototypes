@@ -4,6 +4,8 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 
+import obstacle_kf
+
 DELTA_T = 0.1
 MEASUREMENT_VARIANCE = 0.04
 MEASUREMENT_STD_DEV = math.sqrt(MEASUREMENT_VARIANCE)
@@ -35,77 +37,17 @@ step_lengths = np.linalg.norm(steps, axis=1)
 vs_true = 100 * step_lengths / DELTA_T
 zs = points_lane + np.random.normal(0, MEASUREMENT_STD_DEV, points_lane.shape)
 
-def get_nearest_direction(x_k, points_lane):
-    ds = np.linalg.norm(points_lane - x_k[:2], axis=1)
-    i_nn = min(points_lane.shape[0] - 2, np.argmin(ds))
-    d = points_lane[i_nn + 1] - points_lane[i_nn]
-    d_normalized = d / np.linalg.norm(d)
-    return d_normalized
-
-def predict(x_k, p_k, variance_a, points_lane):
-    # Get direction of nearest neighbour of lane poly chain.
-    d = get_nearest_direction(x_k, points_lane)
-
-    # TODO: Interpolate.
-    a = np.array([[1, 0, (d[0] * DELTA_T) / 100],
-                  [0, 1, (d[1] * DELTA_T) / 100],
-                  [0, 0, 1]])
-    g_k = np.array([[(d[0] * DELTA_T) / 200],
-                    [(d[1] * DELTA_T) / 200],
-                    [DELTA_T]])
-    g_k_t = g_k.T
-    q_k = variance_a
-
-    # Predict state (linearized).
-    x_k1 = np.matmul(a, x_k)
-
-    # TODO: Predict state (EKF).
-    # TODO: Accurately accumulate point to point distances until the estimated distance is passed.
-    #x_k1 = x_k
-    #p_lane_currents = points_lane[i_nn]
-    #d_left = x_k[2] * DELTA_T
-    #while i_current < points_lane.shape[0] && d_left > 
-    #x_k1 = x_k +
-
-    # Predict covariance.
-    p_k1 = np.matmul(np.matmul(a, p_k), a.T) + np.matmul(g_k * q_k, g_k_t)
-
-    return x_k1, p_k1
-
-def filter(x_k, p_k, z_k, r):
-    h = np.array([[1, 0, 0],
-                  [0, 1, 0]])
-    h_t = h.T
-    # Compute Kalman gain.
-    k_k = np.matmul(np.matmul(p_k, h_t), np.linalg.inv(np.matmul(np.matmul(h, p_k), h_t) + r))
-    print("Kalman Gain:\n {}".format(k_k))
-    # Correct state.
-    residual = (z_k - np.matmul(h, x_k))
-    print("Residual: {}".format(residual))
-    x_k = x_k + np.matmul(k_k, residual)
-    # Correct covariance.
-    a = np.eye(3) - np.matmul(k_k, h)
-    p_k = np.matmul(np.matmul(a, p_k), a.T) + np.matmul(np.matmul(k_k, r), k_k.T)
-    print("State Covariance:\n {}".format(p_k))
-    return x_k, p_k
-
-# KF initialization
-x_k = np.array([0, 0, 0]) # p_x [m], p_y [m], v_parallel [cm / s^2]
-p_k = np.array([[50, 0, 0],
-                [0, 50, 0],
-                [0, 0, 500]])
-
-r = np.eye(2) * MEASUREMENT_VARIANCE
+kf = obstacle_kf.FollowTrackObstacleKF(DELTA_T, points_lane)
 
 # Run KF
 xs = np.zeros((zs.shape[0], 3))
 ps = np.zeros((zs.shape[0], 3, 3))
 for k in range(zs.shape[0]):
     print("### Timestep {}".format(k))
-    x_k, p_k = predict(x_k, p_k, ACC_VARIANCE, points_lane)
+    x_k, p_k = kf.predict()
     print("Predicted speed: {}".format(x_k[2]))
     if len(LOST_MEASUREMENTS) == 0 or (LOST_MEASUREMENTS[0] > k or LOST_MEASUREMENTS[1] < k):
-        x_k, p_k = filter(x_k, p_k, zs[k, :], r)
+        x_k, p_k = kf.correct(zs[k, :])
         print("Filtered speed: {}".format(x_k[2]))
     xs[k, :] = x_k
     ps[k, :, :] = p_k
@@ -116,6 +58,7 @@ f, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
 ax1.set_title("Position")
 ax1.plot(points_lane_t[0, :], points_lane_t[1, :], "+-", label="truth")
 ax1.plot(zs.T[0], zs.T[1], "+", label="measurements")
+#ax1.plot(xs.T[0], xs.T[1], "+-", label="estimated")
 ax1.errorbar(xs.T[0], xs.T[1], xerr=np.sqrt(ps[:, 0, 0]), yerr=np.sqrt(ps[:, 1, 1]), fmt="+-", label="estimated")
 if len(LOST_MEASUREMENTS) != 0:
     ax1.plot(xs.T[0, LOST_MEASUREMENTS[0]:LOST_MEASUREMENTS[1]+1], xs.T[1, LOST_MEASUREMENTS[0]:LOST_MEASUREMENTS[1]+1], "rx-", linewidth=3, label="prediction_only")
