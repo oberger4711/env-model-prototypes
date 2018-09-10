@@ -45,11 +45,11 @@ xs = np.zeros((zs.shape[0], 3))
 ps = np.zeros((zs.shape[0], 3, 3))
 for k in range(zs.shape[0]):
     print("### Timestep {}".format(k))
-    x_k, p_k = kf.predict()
-    print("Predicted speed: {}".format(x_k[2]))
     if len(LOST_MEASUREMENTS) == 0 or (LOST_MEASUREMENTS[0] > k or LOST_MEASUREMENTS[1] < k):
-        x_k, p_k = kf.correct(zs[k, :])
-        print("Filtered speed: {}".format(x_k[2]))
+        z_k = zs[k, :]
+    else:
+        z_k = None
+    x_k, p_k = kf.filter(z_k)
     xs[k, :] = x_k
     ps[k, :, :] = p_k
     print()

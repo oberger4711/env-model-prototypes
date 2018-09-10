@@ -35,11 +35,7 @@ class ObstacleKF(abc.ABC):
         return self._x_k, self._p_k
 
     @abc.abstractmethod
-    def predict(self):
-        pass
-
-    @abc.abstractmethod
-    def correct(self, z_k):
+    def filter(self, z_k_or_none):
         pass
 
 class FollowTrackObstacleKF(ObstacleKF):
@@ -83,6 +79,12 @@ class FollowTrackObstacleKF(ObstacleKF):
     def correct(self, z_k):
         return self.kf_correct(z_k)
 
+    def filter(self, z_k_or_none):
+        self.predict()
+        if z_k_or_none is not None:
+            self.correct(z_k_or_none)
+        return self._x_k, self._p_k
+
 class SteadyObstacleKF(ObstacleKF):
 
     PROCESS_NOISE_VARIANCE = 0.01
@@ -106,3 +108,9 @@ class SteadyObstacleKF(ObstacleKF):
 
     def correct(self, z_k):
         return self.kf_correct(z_k)
+
+    def filter(self, z_k_or_none):
+        self.predict()
+        if z_k_or_none is not None:
+            self.correct(z_k_or_none)
+        return self._x_k, self._p_k
