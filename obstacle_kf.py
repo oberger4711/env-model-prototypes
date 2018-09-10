@@ -82,3 +82,27 @@ class FollowTrackObstacleKF(ObstacleKF):
 
     def correct(self, z_k):
         return self.kf_correct(z_k)
+
+class SteadyObstacleKF(ObstacleKF):
+
+    PROCESS_NOISE_VARIANCE = 0.01
+    MEASUREMENT_VARIANCE = 0.04
+
+    def __init__(self):
+        x_0 = np.array([0, 0, 0]) # p_x [m], p_y [m], v_parallel [cm / s^2]
+        p_0 = np.array([[50, 0, 0],
+                        [0, 50, 0],
+                        [0, 0, 0]])
+        h = np.array([[1, 0, 0],
+                      [0, 1, 0]])
+        q = np.eye(3) * SteadyObstacleKF.PROCESS_NOISE_VARIANCE
+        r = np.eye(2) * SteadyObstacleKF.MEASUREMENT_VARIANCE
+        super().__init__(x_0, p_0, h, q, r)
+
+    def predict(self):
+        a_k = np.eye(3)
+        g_k = np.eye(3)
+        return self.kf_predict(a_k, g_k)
+
+    def correct(self, z_k):
+        return self.kf_correct(z_k)

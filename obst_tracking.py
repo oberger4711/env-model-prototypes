@@ -38,6 +38,7 @@ vs_true = 100 * step_lengths / DELTA_T
 zs = points_lane + np.random.normal(0, MEASUREMENT_STD_DEV, points_lane.shape)
 
 kf = obstacle_kf.FollowTrackObstacleKF(DELTA_T, points_lane)
+#kf = obstacle_kf.SteadyObstacleKF()
 
 # Run KF
 xs = np.zeros((zs.shape[0], 3))
