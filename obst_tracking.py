@@ -39,6 +39,12 @@ zs = points_lane + np.random.normal(0, MEASUREMENT_STD_DEV, points_lane.shape)
 
 kf = obstacle_kf.FollowTrackObstacleKF(DELTA_T, points_lane)
 #kf = obstacle_kf.SteadyObstacleKF()
+kf = obstacle_kf.IMMObstacleKF([
+    obstacle_kf.FollowTrackObstacleKF(DELTA_T, points_lane),
+    obstacle_kf.SteadyObstacleKF()
+    ], np.array([
+        [0.5, 0.5],
+        [0.5, 0.5]])
 
 # Run KF
 xs = np.zeros((zs.shape[0], 3))
