@@ -3,7 +3,29 @@
 import abc
 import numpy as np
 
-class ObstacleKF(abc.ABC):
+class IObstacleKF(abc.ABC):
+
+    @abc.abstractmethod
+    def filter(self, z_k_or_none):
+        pass
+
+    @abc.abstractmethod
+    def get_state(self):
+        pass
+
+    @abc.abstractmethod
+    def set_state(self):
+        pass
+
+    @abc.abstractmethod
+    def get_covariance(self):
+        pass
+
+    @abc.abstractmethod
+    def set_covariance(self):
+        pass
+
+class ObstacleKF(IObstacleKF):
     def __init__(self, x_0, p_0, h, q, r):
         super().__init__()
         self._x_k = x_0
@@ -34,14 +56,11 @@ class ObstacleKF(abc.ABC):
         print("State Covariance:\n {}".format(self._p_k))
         return self._x_k, self._p_k
 
-    @abc.abstractmethod
-    def filter(self, z_k_or_none):
-        pass
-
     def get_state(self):
         return self._x_k
 
     def set_state(self, state):
+        print("state:", state.shape, ", self.shape:", self._x_k.shape)
         assert(state.shape == self._x_k.shape)
         self._x_k = np.array(state)
 
@@ -133,7 +152,7 @@ class SteadyObstacleKF(ObstacleKF):
 Implementation of the Interacting Multiple Model (IMM) algorithm.
 Check the paper "The Interacting Multiple Model Algorithm for Accurate State Estimation of Maneuvering Targets" for details.
 """
-class IMMObstacleKF(ObstacleKF):
+class IMMObstacleKF(IObstacleKF):
 
     def __init__(self, models, state_switch_matrix):
         self.__models = list(models)
@@ -145,10 +164,10 @@ class IMMObstacleKF(ObstacleKF):
         #super().__init__(x_0, p_0, h, q, r)
 
     def __get_model_states(self):
-        return np.array([m.get_state() for m in models])
+        return np.array([m.get_state() for m in self.__models])
 
     def __get_model_covariances(self):
-        return np.array([m.get_covariance() for m in models])
+        return np.array([m.get_covariance() for m in self.__models])
 
     """
     Implementation of the "State Interaction" step in the paper.
@@ -159,6 +178,7 @@ class IMMObstacleKF(ObstacleKF):
         next_states = np.zeros(states.shape)
         next_covariances = np.zeros(covariances.shape)
         shape_state = states[0].shape
+        shape_covariance = covariances[0].shape
         for j in range(self.__num_models):
             state_next = np.zeros(shape_state)
             # Take into account every possible state transition from state i to this state j.
@@ -167,17 +187,38 @@ class IMMObstacleKF(ObstacleKF):
                 probs_model_posterior[i] = self.__state_switch_matrix[i, j] * self.__prob_models[i]
             probs_model_posterior /= np.sum(probs_model_posterior)
             # Mix state for model j.
-            next_state_j = np.sum(probs_model_posterior * states, axis=1)
-            models[j].set_state(next_state_j)
+            next_state_j = np.zeros(shape_state)
+            for i in range(self.__num_models):
+                next_state_j += probs_model_posterior[i] * states[i]
+            self.__models[j].set_state(next_state_j)
             # Mix covariance for model j.
-            next_covariance_j = np.sum(probs_model_posterior * (covariances + np.matmul((states - next_state), (states - next_state).T)), axis=1)
-            models[j].set_covariance(next_covariance_j)
+            next_covariance_j = np.zeros(shape_covariance)
+            for i in range(self.__num_models):
+                residual = states[i] - next_state_j
+                next_covariance_j += probs_model_posterior[i] * (covariances[i] + np.dot(residual, residual.T))
+            # Mix covariance for model j.
+            self.__models[j].set_covariance(next_covariance_j)
 
     def filter(self, z_k_or_none):
         self.mix_states()
-        for m in models:
+        for m in self.__models:
             m.filter(z_k_or_none)
         # TODO: Update model probabilities.
         # TODO: Combine state.
-        return models[0].get_state(), models[0].get_covariance()
+        return self.__models[0].get_state(), self.__models[0].get_covariance()
 
+    def get_state(self):
+        # TODO
+        pass
+
+    def set_state(self):
+        # TODO
+        pass
+
+    def get_covariance(self):
+        # TODO
+        pass
+
+    def set_covariance(self):
+        # TODO
+        pass

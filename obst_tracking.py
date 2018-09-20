@@ -45,6 +45,7 @@ kf = obstacle_kf.IMMObstacleKF([
     ], np.array([
         [0.5, 0.5],
         [0.5, 0.5]])
+    )
 
 # Run KF
 xs = np.zeros((zs.shape[0], 3))
