@@ -34,17 +34,24 @@ steps = np.zeros((points_lane.shape[0], 2))
 steps[1:, ] = points_lane[1:, :] - points_lane[:-1, :]
 steps[0,] = steps[1,]
 step_lengths = np.linalg.norm(steps, axis=1)
-vs_true = 100 * step_lengths / DELTA_T
-zs = points_lane + np.random.normal(0, MEASUREMENT_STD_DEV, points_lane.shape)
 
-kf = obstacle_kf.FollowTrackObstacleKF(DELTA_T, points_lane)
+# Obstacle following track
+#vs_true = 100 * step_lengths / DELTA_T
+#zs_true = points_lane
+# Static obstacle
+zs_true = np.zeros((N_MEASUREMENTS, 2))
+vs_true = np.zeros(N_MEASUREMENTS)
+
+zs = zs_true + np.random.normal(0, MEASUREMENT_STD_DEV, points_lane.shape)
+
+#kf = obstacle_kf.FollowTrackObstacleKF(DELTA_T, points_lane)
 #kf = obstacle_kf.SteadyObstacleKF()
 kf = obstacle_kf.IMMObstacleKF([
     obstacle_kf.FollowTrackObstacleKF(DELTA_T, points_lane),
     obstacle_kf.SteadyObstacleKF()
     ], np.array([
-        [0.5, 0.5],
-        [0.5, 0.5]])
+        [0.7, 0.3],
+        [0.3, 0.7]])
     )
 
 # Run KF
@@ -66,8 +73,8 @@ f, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
 ax1.set_title("Position")
 ax1.plot(points_lane_t[0, :], points_lane_t[1, :], "+-", label="truth")
 ax1.plot(zs.T[0], zs.T[1], "+", label="measurements")
-#ax1.plot(xs.T[0], xs.T[1], "+-", label="estimated")
-ax1.errorbar(xs.T[0], xs.T[1], xerr=np.sqrt(ps[:, 0, 0]), yerr=np.sqrt(ps[:, 1, 1]), fmt="+-", label="estimated")
+ax1.plot(xs.T[0], xs.T[1], "+-", label="estimated")
+#ax1.errorbar(xs.T[0], xs.T[1], xerr=np.sqrt(ps[:, 0, 0]), yerr=np.sqrt(ps[:, 1, 1]), fmt="+-", label="estimated")
 if len(LOST_MEASUREMENTS) != 0:
     ax1.plot(xs.T[0, LOST_MEASUREMENTS[0]:LOST_MEASUREMENTS[1]+1], xs.T[1, LOST_MEASUREMENTS[0]:LOST_MEASUREMENTS[1]+1], "rx-", linewidth=3, label="prediction_only")
 ax1.legend()

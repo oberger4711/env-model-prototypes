@@ -3,6 +3,7 @@
 import abc
 import numpy as np
 import math
+import scipy.stats
 
 class IObstacleKF(abc.ABC):
 
@@ -15,7 +16,7 @@ class IObstacleKF(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def set_state(self):
+    def set_state(self, state):
         pass
 
     @abc.abstractmethod
@@ -23,7 +24,7 @@ class IObstacleKF(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def set_covariance(self):
+    def set_covariance(self, covariance):
         pass
 
 class ObstacleKF(IObstacleKF):
@@ -36,35 +37,33 @@ class ObstacleKF(IObstacleKF):
         self._h = h # Observation model
         self._q = q # Process noise
         self._r = r # Observation noise
+        self._z_k_pred = np.dot(h, x_0) # Predicted observation of previous update
 
     def kf_predict(self, a_k, g_k):
         # Predict state.
-        self._x_k = np.matmul(a_k, self._x_k)
+        self._x_k = np.dot(a_k, self._x_k)
         # Predict covariance.
-        self._p_k = np.matmul(np.matmul(a_k, self._p_k), a_k.T) + np.matmul(g_k * self._q, g_k.T)
+        self._p_k = np.dot(np.dot(a_k, self._p_k), a_k.T) + np.dot(g_k * self._q, g_k.T)
         self._p_k_predicted = self._p_k
         return self._x_k, self._p_k
 
     def kf_correct(self, z_k):
         h_t = self._h.T
         # Compute Kalman gain.
-        k_k = np.matmul(np.matmul(self._p_k, h_t), np.linalg.inv(np.matmul(np.matmul(self._h, self._p_k), h_t) + self._r))
-        print("Kalman Gain:\n {}".format(k_k))
+        k_k = np.dot(np.dot(self._p_k, h_t), np.linalg.inv(np.dot(np.dot(self._h, self._p_k), h_t) + self._r))
         # Correct state.
-        self._y_k = (z_k - np.matmul(self._h, self._x_k))
-        print("Residual: {}".format(self._y_k))
-        self._x_k = self._x_k + np.matmul(k_k, self._y_k)
+        self._z_k_pred = np.dot(self._h, self._x_k)
+        self._y_k = (z_k - self._z_k_pred)
+        self._x_k = self._x_k + np.dot(k_k, self._y_k)
         # Correct covariance.
-        a = np.eye(3) - np.matmul(k_k, self._h)
-        self._p_k = np.matmul(np.matmul(a, self._p_k), a.T) + np.matmul(np.matmul(k_k, self._r), k_k.T)
-        print("State Covariance:\n {}".format(self._p_k))
+        a = np.eye(3) - np.dot(k_k, self._h)
+        self._p_k = np.dot(np.dot(a, self._p_k), a.T) + np.dot(np.dot(k_k, self._r), k_k.T)
         return self._x_k, self._p_k
 
     def get_state(self):
         return self._x_k
 
     def set_state(self, state):
-        print("state:", state.shape, ", self.shape:", self._x_k.shape)
         assert(state.shape == self._x_k.shape)
         self._x_k = np.array(state)
 
@@ -74,6 +73,9 @@ class ObstacleKF(IObstacleKF):
     def set_covariance(self, covariance):
         assert(covariance.shape == self._p_k.shape)
         self._p_k = np.array(covariance)
+
+    def get_prediction(self):
+        return self._z_k_pred
 
     def get_innovation(self):
         return self._y_k
@@ -87,7 +89,7 @@ class FollowTrackObstacleKF(ObstacleKF):
     MEASUREMENT_VARIANCE = 0.04
 
     def __init__(self, delta_t, points_lane):
-        x_0 = np.array([0, 0, 0]) # p_x [m], p_y [m], v_parallel [cm / s^2]
+        x_0 = np.array([0, 0, 100]) # p_x [m], p_y [m], v_parallel [cm / s^2]
         p_0 = np.array([[50, 0, 0],
                         [0, 50, 0],
                         [0, 0, 300]])
@@ -130,7 +132,7 @@ class FollowTrackObstacleKF(ObstacleKF):
 
 class SteadyObstacleKF(ObstacleKF):
 
-    PROCESS_NOISE_VARIANCE = 0.01
+    PROCESS_NOISE_VARIANCE = 0.02
     MEASUREMENT_VARIANCE = 0.04
 
     def __init__(self):
@@ -170,8 +172,7 @@ class IMMObstacleKF(IObstacleKF):
         self.__prob_models = np.ones(self.__num_models) / self.__num_models
         self.__state_switch_matrix = state_switch_matrix
         self.mix_states()
-        # TODO: This should only implement the kf interface.
-        #super().__init__(x_0, p_0, h, q, r)
+        self.__x_k, self.__p_k = self.combine_state()
 
     def __get_model_states(self):
         return np.array([m.get_state() for m in self.__models])
@@ -212,37 +213,60 @@ class IMMObstacleKF(IObstacleKF):
     """
     Implementation of the "Model Probability Update" step in the paper.
     """
-    def update_probs(self):
+    def update_probs(self, z_k):
+        # Update.
         for j in range(self.__num_models):
-            innovation_j = self.__models[j].get_innovation()
-            covariance_innovation_j = self.__models[j].get_innovation_covariance()
-            covariance_innovation_j_inv = np.linalg.inv(covariance_innovation_j)
-            likelihood_j = (1 / np.sqrt(np.abs(2 * math.pi * covariance_innovation_j))) * np.exp(-0.5 * np.dot(np.dot(innovation_j.T, covariance_innovation_j_inv), innovation_j))
-            print("Likelihood {}: {}".format(j, likelihood_j))
-        # TODO
-        pass
+            model_j = self.__models[j]
+            innovation_j = model_j.get_prediction()
+            z_k_predicted = model_j.get_prediction()
+            covariance_innovation_j = model_j.get_innovation_covariance()
+            likelihood_j = scipy.stats.multivariate_normal.pdf(z_k, z_k_predicted, covariance_innovation_j)
+            self.__prob_models[j] *= likelihood_j
+        # Normalize.
+        print("Model Probabilities:")
+        normalization_constant = 1 / sum(p for p in self.__prob_models)
+        for j in range(self.__num_models):
+            self.__prob_models[j] *= normalization_constant
+            print("  {}: {}".format(self.__models[j].__class__.__name__, self.__prob_models[j]))
+
+    """
+    Implementation of the "State Estimate Combination" step in the paper.
+    """
+    def combine_state(self):
+        states = np.array(self.__get_model_states())
+        covariances = np.array(self.__get_model_covariances())
+        next_states = np.zeros(states.shape)
+        next_covariances = np.zeros(covariances.shape)
+        shape_state = states[0].shape
+        shape_covariance = covariances[0].shape
+        # Combine states as weighted sum.
+        state_combined = np.zeros(shape_state)
+        for j in range(self.__num_models):
+            state_combined += self.__prob_models[j] * states[j]
+        # Combine covariances.
+        covariance_combined = np.zeros(shape_covariance)
+        for j in range(self.__num_models):
+            diff = states[j] - state_combined
+            covariance_combined += self.__prob_models[j] * (covariances[j] + np.dot(diff, diff.T))
+        return state_combined, covariance_combined
 
     def filter(self, z_k_or_none):
         self.mix_states()
         for m in self.__models:
             m.filter(z_k_or_none)
-        self.update_probs()
-        # TODO: Update model probabilities.
-        # TODO: Combine state.
-        return self.__models[0].get_state(), self.__models[0].get_covariance()
+        if z_k_or_none is not None:
+            self.update_probs(z_k_or_none)
+        self.__x_k, self.__p_k = self.combine_state()
+        return self.__x_k, self.__p_k
 
     def get_state(self):
-        # TODO
-        pass
+        return self.__x_k
 
-    def set_state(self):
-        # TODO
-        pass
+    def set_state(self, state):
+        self._x_k = np.array(state)
 
     def get_covariance(self):
-        # TODO
-        pass
+        return self.__p_k
 
-    def set_covariance(self):
-        # TODO
-        pass
+    def set_covariance(self, covariance):
+        self.__p_k = np.array(covariance)
