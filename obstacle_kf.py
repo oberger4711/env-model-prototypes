@@ -125,9 +125,12 @@ class FollowTrackObstacleKF(ObstacleKF):
         return self.kf_correct(z_k)
 
     def filter(self, z_k_or_none):
+        print("Estimated speed: {}".format(self._x_k[2]))
         self.predict()
+        self._x_k[2] = max(20, self._x_k[2])
         if z_k_or_none is not None:
             self.correct(z_k_or_none)
+        print("Estimated speed: {}".format(self._x_k[2]))
         return self._x_k, self._p_k
 
 class SteadyObstacleKF(ObstacleKF):
@@ -169,9 +172,9 @@ class IMMObstacleKF(IObstacleKF):
     def __init__(self, models, state_switch_matrix):
         self.__models = list(models)
         self.__num_models = len(self.__models)
-        self.__prob_models = np.ones(self.__num_models) / self.__num_models
+        #self.__prob_models = np.ones(self.__num_models) / self.__num_models
+        self.__prob_models = np.array([0.5, 0.5])
         self.__state_switch_matrix = state_switch_matrix
-        self.mix_states()
         self.__x_k, self.__p_k = self.combine_state()
 
     def __get_model_states(self):
@@ -193,10 +196,8 @@ class IMMObstacleKF(IObstacleKF):
         for j in range(self.__num_models):
             state_next = np.zeros(shape_state)
             # Take into account every possible state transition from state i to this state j.
-            probs_model_posterior = np.zeros([self.__num_models])
-            for i in range(self.__num_models):
-                probs_model_posterior[i] = self.__state_switch_matrix[i, j] * self.__prob_models[i]
-            probs_model_posterior /= np.sum(probs_model_posterior)
+            probs_model_posterior[j] = sum(self.__state_switch_matrix[i, j] * self.__prob_models[i] for i in range(self.__num_models))
+        probs_model_posterior /= np.sum(probs_model_posterior)
             # Mix state for model j.
             next_state_j = np.zeros(shape_state)
             for i in range(self.__num_models):
@@ -221,7 +222,8 @@ class IMMObstacleKF(IObstacleKF):
             z_k_predicted = model_j.get_prediction()
             covariance_innovation_j = model_j.get_innovation_covariance()
             likelihood_j = scipy.stats.multivariate_normal.pdf(z_k, z_k_predicted, covariance_innovation_j)
-            self.__prob_models[j] *= likelihood_j
+            prob_state_j = sum(self.__state_switch_matrix[i, j] * self.__prob_models[i] for i in range(self.__num_models))
+            self.__prob_models[j] = likelihood_j * prob_state_j
         # Normalize.
         print("Model Probabilities:")
         normalization_constant = 1 / sum(p for p in self.__prob_models)

@@ -10,9 +10,9 @@ DELTA_T = 0.1
 MEASUREMENT_VARIANCE = 0.04
 MEASUREMENT_STD_DEV = math.sqrt(MEASUREMENT_VARIANCE)
 ACC_VARIANCE = 18000
-N_MEASUREMENTS = 120
-LOST_MEASUREMENTS = [30, 50] # Predict only in this interval in the form [t_start, t_end]
-#LOST_MEASUREMENTS = [] # No lost measurements
+N_MEASUREMENTS = 70
+#LOST_MEASUREMENTS = [30, 50] # Predict only in this interval in the form [t_start, t_end]
+LOST_MEASUREMENTS = [] # No lost measurements
 
 def spacedmarks(x, y, Nmarks, data_ratio=None):
     import scipy.integrate
