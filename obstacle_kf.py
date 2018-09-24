@@ -196,8 +196,10 @@ class IMMObstacleKF(IObstacleKF):
         for j in range(self.__num_models):
             state_next = np.zeros(shape_state)
             # Take into account every possible state transition from state i to this state j.
-            probs_model_posterior[j] = sum(self.__state_switch_matrix[i, j] * self.__prob_models[i] for i in range(self.__num_models))
-        probs_model_posterior /= np.sum(probs_model_posterior)
+            probs_model_posterior = np.zeros([self.__num_models])
+            for i in range(self.__num_models):
+                probs_model_posterior[i] = self.__state_switch_matrix[i, j] * self.__prob_models[i]
+            probs_model_posterior /= np.sum(probs_model_posterior)
             # Mix state for model j.
             next_state_j = np.zeros(shape_state)
             for i in range(self.__num_models):
