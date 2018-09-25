@@ -27,17 +27,22 @@ class IObstacleKF(abc.ABC):
     def set_covariance(self, covariance):
         pass
 
+    @abc.abstractmethod
+    def get_likelihood(self):
+        pass
+
 class ObstacleKF(IObstacleKF):
     def __init__(self, x_0, p_0, h, q, r):
         super().__init__()
         self._x_k = x_0 # State
         self._p_k = p_0 # Covariance
         self._p_k_predicted = p_0 # Covariance
-        self._y_k = np.zeros(x_0.shape) # Innovation of previous update
         self._h = h # Observation model
         self._q = q # Process noise
         self._r = r # Observation noise
+        self._z_k = None
         self._z_k_pred = np.dot(h, x_0) # Predicted observation of previous update
+        self._s_k = None
 
     def kf_predict(self, a_k, g_k):
         # Predict state.
@@ -45,16 +50,19 @@ class ObstacleKF(IObstacleKF):
         # Predict covariance.
         self._p_k = np.dot(np.dot(a_k, self._p_k), a_k.T) + np.dot(g_k * self._q, g_k.T)
         self._p_k_predicted = self._p_k
+        self._z_k_pred = np.dot(self._h, self._x_k)
         return self._x_k, self._p_k
 
     def kf_correct(self, z_k):
+        self._z_k = z_k.copy()
         h_t = self._h.T
         # Compute Kalman gain.
-        k_k = np.dot(np.dot(self._p_k, h_t), np.linalg.inv(np.dot(np.dot(self._h, self._p_k), h_t) + self._r))
+        self._s_k = np.dot(np.dot(self._h, self._p_k), h_t) + self._r
+        k_k = np.dot(np.dot(self._p_k, h_t), np.linalg.inv(self._s_k))
         # Correct state.
         self._z_k_pred = np.dot(self._h, self._x_k)
-        self._y_k = (z_k - self._z_k_pred)
-        self._x_k = self._x_k + np.dot(k_k, self._y_k)
+        innovation = (z_k - self._z_k_pred)
+        self._x_k = self._x_k + np.dot(k_k, innovation)
         # Correct covariance.
         a = np.eye(3) - np.dot(k_k, self._h)
         self._p_k = np.dot(np.dot(a, self._p_k), a.T) + np.dot(np.dot(k_k, self._r), k_k.T)
@@ -77,16 +85,16 @@ class ObstacleKF(IObstacleKF):
     def get_prediction(self):
         return self._z_k_pred
 
-    def get_innovation(self):
-        return self._y_k
-
     def get_innovation_covariance(self):
-        return np.dot(np.dot(self._h, self._p_k_predicted), self._h.T) + self._r
+        return self._s_k
+
+    def get_likelihood(self):
+        return scipy.stats.multivariate_normal.pdf(self._z_k, self._z_k_pred, self._s_k)
 
 class FollowTrackObstacleKF(ObstacleKF):
 
-    ACC_VARIANCE = 18000
-    MEASUREMENT_VARIANCE = 0.04
+    ACC_VARIANCE = 180
+    MEASUREMENT_VARIANCE = 0.08
 
     def __init__(self, delta_t, points_lane):
         x_0 = np.array([0, 0, 100]) # p_x [m], p_y [m], v_parallel [cm / s^2]
@@ -127,7 +135,7 @@ class FollowTrackObstacleKF(ObstacleKF):
     def filter(self, z_k_or_none):
         print("Estimated speed: {}".format(self._x_k[2]))
         self.predict()
-        self._x_k[2] = max(20, self._x_k[2])
+        self._x_k[2] = max(40, self._x_k[2])
         if z_k_or_none is not None:
             self.correct(z_k_or_none)
         print("Estimated speed: {}".format(self._x_k[2]))
@@ -135,8 +143,8 @@ class FollowTrackObstacleKF(ObstacleKF):
 
 class SteadyObstacleKF(ObstacleKF):
 
-    PROCESS_NOISE_VARIANCE = 0.02
-    MEASUREMENT_VARIANCE = 0.04
+    PROCESS_NOISE_VARIANCE = 0.01
+    MEASUREMENT_VARIANCE = 0.08
 
     def __init__(self):
         x_0 = np.array([0, 0, 0]) # p_x [m], p_y [m], v_parallel [cm / s^2]
@@ -218,27 +226,25 @@ class IMMObstacleKF(IObstacleKF):
     """
     def update_probs(self, z_k):
         # Update.
+        next_prob_models = self.__prob_models.copy()
         for j in range(self.__num_models):
             model_j = self.__models[j]
-            innovation_j = model_j.get_prediction()
-            z_k_predicted = model_j.get_prediction()
-            covariance_innovation_j = model_j.get_innovation_covariance()
-            likelihood_j = scipy.stats.multivariate_normal.pdf(z_k, z_k_predicted, covariance_innovation_j)
+            likelihood_j = model_j.get_likelihood()
             prob_state_j = sum(self.__state_switch_matrix[i, j] * self.__prob_models[i] for i in range(self.__num_models))
-            self.__prob_models[j] = likelihood_j * prob_state_j
+            next_prob_models[j] = likelihood_j * prob_state_j
         # Normalize.
+        next_prob_models /= sum(p for p in next_prob_models)
         print("Model Probabilities:")
-        normalization_constant = 1 / sum(p for p in self.__prob_models)
         for j in range(self.__num_models):
-            self.__prob_models[j] *= normalization_constant
             print("  {}: {}".format(self.__models[j].__class__.__name__, self.__prob_models[j]))
+        self.__prob_models = next_prob_models
 
     """
     Implementation of the "State Estimate Combination" step in the paper.
     """
     def combine_state(self):
-        states = np.array(self.__get_model_states())
-        covariances = np.array(self.__get_model_covariances())
+        states = self.__get_model_states()
+        covariances = self.__get_model_covariances()
         next_states = np.zeros(states.shape)
         next_covariances = np.zeros(covariances.shape)
         shape_state = states[0].shape
@@ -267,10 +273,13 @@ class IMMObstacleKF(IObstacleKF):
         return self.__x_k
 
     def set_state(self, state):
-        self._x_k = np.array(state)
+        self._x_k = state.copy()
 
     def get_covariance(self):
         return self.__p_k
 
     def set_covariance(self, covariance):
-        self.__p_k = np.array(covariance)
+        self.__p_k = covariance.copy()
+
+    def get_likelihood(self):
+        return np.array([m.get_likelihood() for m in self.__models])
