@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import obstacle_kf
 
 DELTA_T = 0.1
-MEASUREMENT_VARIANCE = 0.04
+MEASUREMENT_VARIANCE = 0.01
 MEASUREMENT_STD_DEV = math.sqrt(MEASUREMENT_VARIANCE)
 N_MEASUREMENTS = 90
 #LOST_MEASUREMENTS = [30, 50] # Predict only in this interval in the form [t_start, t_end]
@@ -52,12 +52,11 @@ def run_filter(gen_true_measurements, plot=False):
             obstacle_kf.FollowTrackObstacleKF(DELTA_T, points_lane),
             obstacle_kf.SteadyObstacleKF()
             ]
-    #kf = obstacle_kf.FollowTrackObstacleKF(DELTA_T, points_lane)
-    #kf = obstacle_kf.SteadyObstacleKF()
+    #kf = sub_filters[0]
     kf = obstacle_kf.IMMObstacleKF(
             sub_filters, np.array([
-            [0.97, 0.03],
-            [0.03, 0.97]])
+            [0.99, 0.01],
+            [0.01, 0.99]])
         )
 
     # Run KF

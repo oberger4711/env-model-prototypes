@@ -93,13 +93,13 @@ class ObstacleKF(IObstacleKF):
 
 class FollowTrackObstacleKF(ObstacleKF):
 
-    ACC_VARIANCE = 180
-    MEASUREMENT_VARIANCE = 0.08
+    ACC_VARIANCE = 20
+    MEASUREMENT_VARIANCE = 0.01
 
     def __init__(self, delta_t, points_lane):
         x_0 = np.array([0, 0, 100]) # p_x [m], p_y [m], v_parallel [cm / s^2]
-        p_0 = np.array([[50, 0, 0],
-                        [0, 50, 0],
+        p_0 = np.array([[10, 0, 0],
+                        [0, 10, 0],
                         [0, 0, 300]])
         h = np.array([[1, 0, 0],
                       [0, 1, 0]])
@@ -135,7 +135,7 @@ class FollowTrackObstacleKF(ObstacleKF):
     def filter(self, z_k_or_none):
         print("Estimated speed: {}".format(self._x_k[2]))
         self.predict()
-        self._x_k[2] = max(40, self._x_k[2])
+        self._x_k[2] = max(80, self._x_k[2])
         if z_k_or_none is not None:
             self.correct(z_k_or_none)
         print("Estimated speed: {}".format(self._x_k[2]))
@@ -144,13 +144,13 @@ class FollowTrackObstacleKF(ObstacleKF):
 class SteadyObstacleKF(ObstacleKF):
 
     PROCESS_NOISE_VARIANCE = 0.01
-    MEASUREMENT_VARIANCE = 0.08
+    MEASUREMENT_VARIANCE = 0.01
 
     def __init__(self):
-        x_0 = np.array([0, 0, 0]) # p_x [m], p_y [m], v_parallel [cm / s^2]
-        p_0 = np.array([[50, 0, 0],
-                        [0, 50, 0],
-                        [0, 0, 0]])
+        x_0 = np.array([0, 0, 100]) # p_x [m], p_y [m], v_parallel [cm / s^2]
+        p_0 = np.array([[10, 0, 0],
+                        [0, 10, 0],
+                        [0, 0, 300]])
         h = np.array([[1, 0, 0],
                       [0, 1, 0]])
         q = np.eye(3) * SteadyObstacleKF.PROCESS_NOISE_VARIANCE
