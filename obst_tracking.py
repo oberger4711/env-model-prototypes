@@ -3,6 +3,7 @@
 import math
 import numpy as np
 import matplotlib.pyplot as plt
+import filterpy.kalman
 
 import obstacle_kf
 
@@ -10,8 +11,8 @@ DELTA_T = 0.1
 MEASUREMENT_VARIANCE = 0.01
 MEASUREMENT_STD_DEV = math.sqrt(MEASUREMENT_VARIANCE)
 N_MEASUREMENTS = 90
-#LOST_MEASUREMENTS = [30, 50] # Predict only in this interval in the form [t_start, t_end]
-LOST_MEASUREMENTS = [] # No lost measurements
+LOST_MEASUREMENTS = [20, 50] # Predict only in this interval in the form [t_start, t_end]
+#LOST_MEASUREMENTS = [] # No lost measurements
 
 def gen_following_obstacle(points_lane):
     steps = np.zeros((points_lane.shape[0], 2))
@@ -26,6 +27,35 @@ def gen_static_obstacle(points_lane):
     zs_true = np.zeros((N_MEASUREMENTS, 2))
     vs_true = np.zeros(N_MEASUREMENTS)
     return zs_true, vs_true
+
+def make_steady_kf():
+    kf = filterpy.kalman.KalmanFilter(dim_x=3, dim_z=2)
+    kf.x = np.array([0, 0, 100])
+    kf.F = np.array([[1, 0, 0],
+                     [0, 1, 0],
+                     [0, 0, 1]])
+    kf.Q = np.eye(3) * 0.0001
+    kf.R = np.eye(2) * MEASUREMENT_VARIANCE
+    kf.H = np.array([[1, 0, 0],
+                     [0, 1, 0]])
+    kf.P = np.array([[10, 0, 0],
+                    [0, 10, 0],
+                    [0, 0, 300]])
+    return kf
+
+def make_moving_kf():
+    kf = filterpy.kalman.KalmanFilter(dim_x=3, dim_z=2)
+    kf.x = np.array([0, 0, 100])
+    kf.F = np.array([[1, 0, DELTA_T / 100],
+                     [0, 1, DELTA_T / 100],
+                     [0, 0, 1]])
+    kf.Q = np.eye(2) * 0.1
+    kf.R = np.eye(2) * MEASUREMENT_VARIANCE
+    kf.H = np.array([[1, 0, 0],
+                     [0, 1, 0]])
+    kf.P = np.array([[10, 0, 0],
+                    [0, 10, 0],
+                    [0, 0, 300]])
 
 def run_filter(gen_true_measurements, plot=False):
     def spacedmarks(x, y, Nmarks, data_ratio=None):
@@ -50,14 +80,12 @@ def run_filter(gen_true_measurements, plot=False):
 
     sub_filters = [
             obstacle_kf.FollowTrackObstacleKF(DELTA_T, points_lane),
-            obstacle_kf.SteadyObstacleKF()
+            make_steady_kf()
             ]
-    #kf = sub_filters[0]
-    kf = obstacle_kf.IMMObstacleKF(
-            sub_filters, np.array([
-            [0.99, 0.01],
-            [0.01, 0.99]])
-        )
+    print(sub_filters[0].x)
+    kf = filterpy.kalman.IMMEstimator(sub_filters, np.array([0.5, 0.5]),
+            np.array([[0.995, 0.05],
+                      [0.05, 0.995]]))
 
     # Run KF
     xs = np.zeros((zs.shape[0], 3))
@@ -65,15 +93,17 @@ def run_filter(gen_true_measurements, plot=False):
     likelihoods = np.zeros((zs.shape[0], len(sub_filters)))
     for k in range(zs.shape[0]):
         print("### Timestep {}".format(k))
+        kf.predict()
         if len(LOST_MEASUREMENTS) == 0 or (LOST_MEASUREMENTS[0] > k or LOST_MEASUREMENTS[1] < k):
             z_k = zs[k, :]
-        else:
-            z_k = None
-        x_k, p_k = kf.filter(z_k)
+            kf.update(z_k)
+        x_k = kf.x
+        p_k = kf.P
         xs[k, :] = x_k
         ps[k, :, :] = p_k
         for i in range(len(sub_filters)):
-            likelihoods[k, i] = sub_filters[i].get_likelihood()
+            likelihoods[k, i] = sub_filters[i].likelihood
+        print(kf.mu)
         print()
 
     # Plot estimations
@@ -106,4 +136,5 @@ def run_filter(gen_true_measurements, plot=False):
     if plot:
         plt.show()
 
+run_filter(gen_static_obstacle, True)
 run_filter(gen_following_obstacle, True)

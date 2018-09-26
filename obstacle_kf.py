@@ -4,6 +4,7 @@ import abc
 import numpy as np
 import math
 import scipy.stats
+from filterpy.stats import logpdf
 
 class IObstacleKF(abc.ABC):
 
@@ -34,8 +35,8 @@ class IObstacleKF(abc.ABC):
 class ObstacleKF(IObstacleKF):
     def __init__(self, x_0, p_0, h, q, r):
         super().__init__()
-        self._x_k = x_0 # State
-        self._p_k = p_0 # Covariance
+        self.x = x_0 # State
+        self.P = p_0 # Covariance
         self._p_k_predicted = p_0 # Covariance
         self._h = h # Observation model
         self._q = q # Process noise
@@ -46,41 +47,42 @@ class ObstacleKF(IObstacleKF):
 
     def kf_predict(self, a_k, g_k):
         # Predict state.
-        self._x_k = np.dot(a_k, self._x_k)
+        self.x = np.dot(a_k, self.x)
         # Predict covariance.
-        self._p_k = np.dot(np.dot(a_k, self._p_k), a_k.T) + np.dot(g_k * self._q, g_k.T)
-        self._p_k_predicted = self._p_k
-        self._z_k_pred = np.dot(self._h, self._x_k)
-        return self._x_k, self._p_k
+        self.P = np.dot(np.dot(a_k, self.P), a_k.T) + np.dot(g_k * self._q, g_k.T)
+        self._p_k_predicted = self.P
+        self._z_k_pred = np.dot(self._h, self.x)
+        return self.x, self.P
 
     def kf_correct(self, z_k):
         self._z_k = z_k.copy()
         h_t = self._h.T
         # Compute Kalman gain.
-        self._s_k = np.dot(np.dot(self._h, self._p_k), h_t) + self._r
-        k_k = np.dot(np.dot(self._p_k, h_t), np.linalg.inv(self._s_k))
+        self._s_k = np.dot(np.dot(self._h, self.P), h_t) + self._r
+        k_k = np.dot(np.dot(self.P, h_t), np.linalg.inv(self._s_k))
         # Correct state.
-        self._z_k_pred = np.dot(self._h, self._x_k)
+        self._z_k_pred = np.dot(self._h, self.x)
         innovation = (z_k - self._z_k_pred)
-        self._x_k = self._x_k + np.dot(k_k, innovation)
+        self.y = innovation
+        self.x = self.x + np.dot(k_k, innovation)
         # Correct covariance.
         a = np.eye(3) - np.dot(k_k, self._h)
-        self._p_k = np.dot(np.dot(a, self._p_k), a.T) + np.dot(np.dot(k_k, self._r), k_k.T)
-        return self._x_k, self._p_k
+        self.P = np.dot(np.dot(a, self.P), a.T) + np.dot(np.dot(k_k, self._r), k_k.T)
+        return self.x, self.P
 
     def get_state(self):
-        return self._x_k
+        return self.x
 
     def set_state(self, state):
-        assert(state.shape == self._x_k.shape)
-        self._x_k = np.array(state)
+        assert(state.shape == self.x.shape)
+        self.x = np.array(state)
 
     def get_covariance(self):
-        return self._p_k
+        return self.P
 
     def set_covariance(self, covariance):
-        assert(covariance.shape == self._p_k.shape)
-        self._p_k = np.array(covariance)
+        assert(covariance.shape == self.P.shape)
+        self.P = np.array(covariance)
 
     def get_prediction(self):
         return self._z_k_pred
@@ -93,7 +95,7 @@ class ObstacleKF(IObstacleKF):
 
 class FollowTrackObstacleKF(ObstacleKF):
 
-    ACC_VARIANCE = 20
+    ACC_VARIANCE = 100
     MEASUREMENT_VARIANCE = 0.01
 
     def __init__(self, delta_t, points_lane):
@@ -108,16 +110,18 @@ class FollowTrackObstacleKF(ObstacleKF):
         super().__init__(x_0, p_0, h, q, r)
         self._delta_t = delta_t
         self._points_lane = points_lane
+        self._likelihood = None
+        self._log_likelihood = None
 
     def get_nearest_direction(self):
         # TODO: Interpolate?
-        ds = np.linalg.norm(self._points_lane - self._x_k[:2], axis=1)
+        ds = np.linalg.norm(self._points_lane - self.x[:2], axis=1)
         i_nn = min(self._points_lane.shape[0] - 2, np.argmin(ds))
         d = self._points_lane[i_nn + 1] - self._points_lane[i_nn]
         d_normalized = d / np.linalg.norm(d)
         return d_normalized
 
-    def predict(self):
+    def predict(self, u=None):
         # Linearize lane at nearest neighbour.
         d = self.get_nearest_direction()
         print("Direction", d.T)
@@ -129,17 +133,41 @@ class FollowTrackObstacleKF(ObstacleKF):
                         [self._delta_t]])
         return self.kf_predict(a_k, g_k)
 
-    def correct(self, z_k):
+    def update(self, z_k):
         return self.kf_correct(z_k)
 
     def filter(self, z_k_or_none):
-        print("Estimated speed: {}".format(self._x_k[2]))
+        print("Estimated speed: {}".format(self.x[2]))
         self.predict()
-        self._x_k[2] = max(80, self._x_k[2])
+        self.x[2] = max(80, self.x[2])
         if z_k_or_none is not None:
             self.correct(z_k_or_none)
-        print("Estimated speed: {}".format(self._x_k[2]))
-        return self._x_k, self._p_k
+        print("Estimated speed: {}".format(self.x[2]))
+        return self.x, self.P
+
+    @property
+    def log_likelihood(self):
+        """
+        log-likelihood of the last measurement.
+        """
+        self._log_likelihood = logpdf(x=self.y, cov=self._s_k)
+        return self._log_likelihood
+
+    @property
+    def likelihood(self):
+        """
+        Computed from the log-likelihood. The log-likelihood can be very
+        small,  meaning a large negative value such as -28000. Taking the
+        exp() of that results in 0.0, which can break typical algorithms
+        which multiply by this value, so by default we always return a
+        number >= sys.float_info.min.
+        """
+        self._likelihood = math.exp(self.log_likelihood)
+        if self._likelihood == 0:
+            self._likelihood = sys.float_info.min
+        print(self._s_k)
+        print(self._likelihood)
+        return self._likelihood
 
 class SteadyObstacleKF(ObstacleKF):
 
@@ -169,7 +197,7 @@ class SteadyObstacleKF(ObstacleKF):
         self.predict()
         if z_k_or_none is not None:
             self.correct(z_k_or_none)
-        return self._x_k, self._p_k
+        return self.x, self.P
 
 """
 Implementation of the Interacting Multiple Model (IMM) algorithm.
@@ -273,7 +301,7 @@ class IMMObstacleKF(IObstacleKF):
         return self.__x_k
 
     def set_state(self, state):
-        self._x_k = state.copy()
+        self.x = state.copy()
 
     def get_covariance(self):
         return self.__p_k
